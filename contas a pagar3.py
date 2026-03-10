@@ -6,49 +6,35 @@ from fpdf import FPDF
 from datetime import datetime
 import io
 
-# 1. Configuração de Página e Estilo Dark Premium (Interface Original Mantida)
-st.set_page_config(page_title="CASH FLOW PROJECT - ACCOUNTS PAYABLE", layout="wide", initial_sidebar_state="collapsed")
+# 1. Configuração de Página e Estilo Dark Premium (Interface Original)
+st.set_page_config(page_title="CASH FLOW PROJECT", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0E1117; }
     
-    /* Cards de Métricas */
     div[data-testid="metric-container"] {
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid #334155;
-        padding: 20px;
-        border-radius: 20px;
+        border: 1px solid #334155; padding: 20px; border-radius: 20px;
     }
     div[data-testid="stMetricValue"] { color: #38bdf8; font-weight: 700; }
     
-    /* Abas Customizadas */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #1e293b;
-        border-radius: 10px 10px 0px 0px;
-        color: white;
-        padding: 10px 20px;
-    }
-    .stTabs [aria-selected="true"] { background-color: #38bdf8 !important; color: #000 !important; }
-    
-    /* Botões */
     .stButton>button {
         background: linear-gradient(90deg, #d946ef, #a21caf); border: none; color: white;
-        border-radius: 12px; font-weight: bold; width: 100%;
+        border-radius: 12px; font-weight: bold; width: 100%; height: 3em;
     }
     .stDownloadButton>button {
-        background: linear-gradient(90deg, #0ea5e9, #2563eb); border: none; color: white;
-        border-radius: 12px; font-weight: bold; width: 100%;
+        background: linear-gradient(90deg, #06b6d4, #0891b2); border: none; color: white;
+        border-radius: 12px; font-weight: bold; width: 100%; height: 3em;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CLASSE PDF REFORMULADA (LAYOUT IMPECÁVEL) ---
+# --- CLASSE PDF REFORMULADA PARA LAYOUT IMPECÁVEL ---
 class PDFReport(FPDF):
     def header(self):
-        # Header Sólido - Estilo Relatório Bancário
+        # Header Sólido Azul Marinho
         self.set_fill_color(15, 23, 42)
         self.rect(0, 0, 210, 35, 'F')
         self.set_xy(10, 12)
@@ -75,7 +61,7 @@ class PDFReport(FPDF):
         self.line(self.get_x(), self.get_y(), self.get_x() + 190, self.get_y())
         self.ln(5)
 
-# --- FUNÇÕES AUXILIARES ---
+# --- FUNÇÕES DE APOIO ---
 def format_brl(val):
     return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -96,125 +82,114 @@ def load_and_process():
     df['Data de pagamento'] = pd.to_datetime(df['Data de pagamento'], dayfirst=True, errors='coerce')
     df = df.dropna(subset=['Data de pagamento']).sort_values('Data de pagamento')
     df['Mes_Ano'] = df['Data de pagamento'].dt.strftime('%m/%Y')
-    df['Periodo_Sort'] = df['Data de pagamento'].dt.to_period('M')
-
+    
     keywords_imposto = ['ISS', 'IRPJ', 'CSLL', 'PIS', 'COFINS', 'RETIDO', 'IMPOSTO', 'TAXA', 'DARF']
     df['Tipo'] = df['Categoria'].apply(
         lambda x: 'Imposto/Retenção' if any(k in str(x).upper() for k in keywords_imposto) else 'Operacional'
     )
     return df
 
-# --- MOTOR DO DASHBOARD ---
+# --- DASHBOARD ---
 try:
     df_raw = load_and_process()
     col_v = 'Valor categoria/centro de custo'
 
-    # Header Superior
     c1, c2, c3 = st.columns([3, 1, 1])
     with c1:
         st.title("💎 CASH FLOW PROJECT")
     with c2:
-        if st.button("🔄 Sincronizar Dados"):
+        if st.button("🔄 Sincronizar"):
             st.cache_data.clear()
             st.rerun()
 
     lista_meses = sorted(df_raw['Mes_Ano'].unique(), key=lambda x: pd.to_datetime(x, format='%m/%Y'))
     lista_meses.insert(0, "Todos os Meses")
-    mes_selecionado = st.selectbox("📅 Período de Análise:", lista_meses)
+    mes_selecionado = st.selectbox("📅 Período:", lista_meses)
 
     df = df_raw if mes_selecionado == "Todos os Meses" else df_raw[df_raw['Mes_Ano'] == mes_selecionado].copy()
 
-    st.write("---")
-
-    # Métricas de Alto Impacto
+    # Métricas Dashboard
     saidas_totais = df[df[col_v] < 0][col_v].sum()
     impostos_totais = df[df['Tipo'] == 'Imposto/Retenção'][col_v].sum()
     operacional_puro = df[df['Tipo'] == 'Operacional'][col_v].sum()
     
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Cash Out Total", format_brl(abs(saidas_totais)))
-    tax_perc = abs(impostos_totais/saidas_totais)*100 if saidas_totais != 0 else 0
-    m2.metric("Impostos", format_brl(abs(impostos_totais)), f"{tax_perc:.1f}%")
+    m2.metric("Impostos/Taxas", format_brl(abs(impostos_totais)))
     m3.metric("Operacional", format_brl(abs(operacional_puro)))
-    m4.metric("Qtd. Notas", len(df))
+    m4.metric("Lançamentos", len(df))
 
-    # --- GERADOR DE PDF EXECUTIVO (MUDANÇAS AQUI) ---
+    # --- LÓGICA DO PDF ---
     with c3:
-        def generate_exec_pdf():
-            # Configuração visual dos gráficos (Fundo Branco para PDF)
-            plt.rcParams.update({'figure.facecolor': 'white', 'font.size': 10})
+        def make_pdf():
+            plt.style.use('seaborn-v0_8-whitegrid')
             
-            # Plot 1: Cash Burn (Área)
+            # 1. Plot Burn
             fig1, ax1 = plt.subplots(figsize=(10, 4))
             burn = df.groupby('Data de pagamento')[col_v].sum().cumsum().abs()
             ax1.fill_between(burn.index, burn, color='#0ea5e9', alpha=0.15)
             ax1.plot(burn.index, burn, color='#0284c7', linewidth=2)
-            ax1.set_title("CONSUMO DE CAIXA ACUMULADO", fontweight='bold')
-            plt.tight_layout()
+            ax1.set_title("CASH BURN ACUMULADO", fontweight='bold')
             buf1 = io.BytesIO()
-            plt.savefig(buf1, format='png', dpi=200)
+            plt.savefig(buf1, format='png', dpi=180)
             buf1.seek(0)
+            plt.close()
 
-            # Plot 2: Pareto (Barras)
+            # 2. Plot Pareto
             fig2, ax2 = plt.subplots(figsize=(10, 5))
             pareto = df[df[col_v] < 0].groupby('Categoria')[col_v].sum().abs().sort_values(ascending=False).head(8)
             pareto.plot(kind='bar', color='#38bdf8', ax=ax2)
-            ax2.set_title("TOP 8 CATEGORIAS DE DESPESA", fontweight='bold')
+            ax2.set_title("PARETO: MAIORES DESPESAS", fontweight='bold')
             plt.xticks(rotation=30, ha='right')
-            plt.tight_layout()
             buf2 = io.BytesIO()
-            plt.savefig(buf2, format='png', dpi=200)
+            plt.savefig(buf2, format='png', dpi=180)
             buf2.seek(0)
+            plt.close()
 
-            # Plot 3: Pizza (Fiscal vs Op)
+            # 3. Plot Pizza
             fig3, ax3 = plt.subplots(figsize=(6, 5))
             dist = df.groupby('Tipo')[col_v].sum().abs()
             ax3.pie(dist, labels=dist.index, autopct='%1.1f%%', colors=['#0ea5e9', '#d946ef'], startangle=140)
-            ax3.set_title("FISCAL VS OPERACIONAL", fontweight='bold')
-            plt.tight_layout()
+            ax3.set_title("DISTRIBUIÇÃO FISCAL VS OP", fontweight='bold')
             buf3 = io.BytesIO()
-            plt.savefig(buf3, format='png', dpi=200)
+            plt.savefig(buf3, format='png', dpi=180)
             buf3.seek(0)
+            plt.close()
 
-            # Montagem do PDF
             pdf = PDFReport()
             pdf.add_page()
             
-            # Seção 1: Resumo Numérico
-            pdf.section_divider(f"Visão Geral: {mes_selecionado}")
+            # Resumo KPIs
+            pdf.section_divider(f"Resumo do Período: {mes_selecionado}")
             pdf.set_font('Helvetica', 'B', 10)
             pdf.set_fill_color(248, 250, 252)
-            pdf.cell(47, 10, " Cash Out Total", 1, 0, 'L', True)
-            pdf.cell(47, 10, " Total Impostos", 1, 0, 'L', True)
-            pdf.cell(47, 10, " Custo Operacional", 1, 0, 'L', True)
-            pdf.cell(49, 10, " Notas Processadas", 1, 1, 'L', True)
-            
+            pdf.cell(47, 10, " Cash Out", 1, 0, 'L', True)
+            pdf.cell(47, 10, " Impostos", 1, 0, 'L', True)
+            pdf.cell(47, 10, " Operacional", 1, 0, 'L', True)
+            pdf.cell(49, 10, " Notas", 1, 1, 'L', True)
             pdf.set_font('Helvetica', '', 10)
             pdf.cell(47, 10, format_brl(abs(saidas_totais)), 1, 0, 'L')
             pdf.cell(47, 10, format_brl(abs(impostos_totais)), 1, 0, 'L')
             pdf.cell(47, 10, format_brl(abs(operacional_puro)), 1, 0, 'L')
             pdf.cell(49, 10, str(len(df)), 1, 1, 'L')
 
-            # Seção 2: Cash Burn
-            pdf.section_divider("Dinâmica de Saída de Caixa")
+            # Gráficos
+            pdf.section_divider("Dinâmica de Caixa")
             pdf.image(buf1, x=10, w=190)
-
-            # Seção 3: Pareto e Pizza (Página 2 para evitar desformatação)
+            
             pdf.add_page()
-            pdf.section_divider("Distribuição de Custos e Natureza")
+            pdf.section_divider("Análise de Categorias e Natureza")
             pdf.image(buf2, x=10, w=190)
             pdf.ln(5)
             pdf.image(buf3, x=55, w=100)
 
-            # Tabela Final de Auditoria
+            # Tabela Final
             pdf.ln(5)
-            pdf.section_divider("Resumo Consolidado por Tipo")
+            pdf.section_divider("Consolidado por Natureza")
             pdf.set_font('Helvetica', 'B', 10)
             pdf.set_fill_color(241, 245, 249)
-            pdf.cell(100, 10, " Natureza do Lançamento", 1, 0, 'L', True)
-            pdf.cell(90, 10, " Valor Consolidado (R$)", 1, 1, 'C', True)
-            
-            pdf.set_font('Helvetica', '', 10)
+            pdf.cell(100, 10, " Natureza", 1, 0, 'L', True)
+            pdf.cell(90, 10, " Valor Total", 1, 1, 'C', True)
             for tipo, valor in df.groupby('Tipo')[col_v].sum().abs().items():
                 pdf.cell(100, 10, f" {tipo}", 1, 0, 'L')
                 pdf.cell(90, 10, format_brl(valor), 1, 1, 'R')
@@ -223,41 +198,24 @@ try:
             return bytes(out) if isinstance(out, bytearray) else out
 
         st.download_button(
-            label="📥 Baixar Relatório Executivo PDF",
-            data=generate_exec_pdf(),
-            file_name=f"Relatorio_Financeiro_{mes_selecionado}.pdf",
+            label="📥 Baixar PDF Impecável",
+            data=make_pdf(),
+            file_name=f"Relatorio_{mes_selecionado}.pdf",
             mime="application/pdf"
         )
 
-    # --- ABAS ORIGINAIS (MANTIDAS) ---
-    tab_proj, tab_burn, tab_pareto, tab_tax, tab_raw = st.tabs([
-        "📊 Projeção Mensal", "🔥 Cash Burn Diário", "🎯 Pareto (80/20)", "🏛️ Fiscal vs Op", "📋 Dados Brutos"
-    ])
+    st.write("---")
 
-    with tab_proj:
-        st.subheader("Análise Evolutiva: Histórico Mês a Mês")
-        proj_mensal = df_raw[df_raw[col_v] < 0].groupby('Periodo_Sort')[col_v].sum().abs().reset_index()
-        proj_mensal['Mês/Ano'] = proj_mensal['Periodo_Sort'].astype(str)
-        st.bar_chart(proj_mensal.set_index('Mês/Ano')[col_v], color="#38bdf8")
-
-    with tab_burn:
-        st.subheader("Evolução do Consumo de Caixa (Acumulado)")
-        burn_df = df.groupby('Data de pagamento')[col_v].sum().cumsum().abs().reset_index()
-        st.area_chart(burn_df.set_index('Data de pagamento'), color="#f43f5e")
-
-    with tab_pareto:
-        st.subheader("Análise de Pareto: Maiores Saídas")
-        resumo_cat = df[df[col_v] < 0].groupby('Categoria')[col_v].sum().abs().sort_values(ascending=False).head(10)
-        st.bar_chart(resumo_cat, color="#38bdf8")
-
-    with tab_tax:
-        st.subheader("Distribuição Fiscal vs Operacional")
-        dist_tipo = df.groupby('Tipo')[col_v].sum().abs()
-        st.bar_chart(dist_tipo, color="#a21caf")
-
-    with tab_raw:
-        st.subheader("Explorador Geral de Dados")
+    # Abas Visuais
+    t1, t2, t3, t4 = st.tabs(["🔥 Burn Diário", "🎯 Pareto", "🏛️ Fiscal vs Op", "📋 Dados Brutos"])
+    with t1:
+        st.area_chart(df.groupby('Data de pagamento')[col_v].sum().cumsum().abs(), color="#f43f5e")
+    with t2:
+        st.bar_chart(df[df[col_v] < 0].groupby('Categoria')[col_v].sum().abs().sort_values(ascending=False), color="#38bdf8")
+    with t3:
+        st.bar_chart(df.groupby('Tipo')[col_v].sum().abs(), color="#a21caf")
+    with t4:
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 except Exception as e:
-    st.error(f"Erro ao carregar dashboard: {e}")
+    st.error(f"Erro Crítico: {e}")
