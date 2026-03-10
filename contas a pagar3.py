@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from fpdf import FPDF
+from fpdf import FPDF2
 from datetime import datetime
 import io
 
@@ -200,3 +200,4 @@ try:
 
 except Exception as e:
     st.error(f"Erro: {e}")
+
